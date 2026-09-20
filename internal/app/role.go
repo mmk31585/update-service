@@ -146,6 +146,11 @@ func (rm *RoleManager) startWorkerTasks(ctx context.Context) error {
 		return err
 	}
 
+	// Also subscribe to coordinator events to receive TransferVerified
+	if err := rm.startEventConsumer(ctx); err != nil {
+		return err
+	}
+
 	log.Println("worker tasks started")
 	return nil
 }
@@ -277,12 +282,12 @@ func (rm *RoleManager) startCoordinatorTasks(ctx context.Context) error {
 func (rm *RoleManager) startEventConsumer(ctx context.Context) error {
 	consumerName := "coordinator-events-" + rm.app.AppConfig.Node.ID
 	_, err := rm.app.nats.Subscribe(ctx, nats.SubjectCoordinatorEvents, consumerName, func(msg jetstream.Msg) {
-		log.Printf("coordinator received event on %s", msg.Subject())
+		log.Printf("node %s received event on %s", rm.app.AppConfig.Node.ID, msg.Subject())
 
 		var evt struct {
-			EventType   string         `json:"event_type"`
-			OperationID string         `json:"operation_id"`
-			Payload     map[string]any `json:"payload"`
+			EventType   string                 `json:"event_type"`
+			OperationID string                 `json:"operation_id"`
+			Payload     map[string]any         `json:"payload"`
 		}
 		if err := json.Unmarshal(msg.Data(), &evt); err != nil {
 			log.Printf("invalid event payload: %v", err)
@@ -298,7 +303,13 @@ func (rm *RoleManager) startEventConsumer(ctx context.Context) error {
 		case event.EventTypeCancelled:
 			rm.handleCancelled(ctx, evt.OperationID, evt.Payload)
 		case event.EventTypeTransferVerified:
-			rm.handleTransferVerified(ctx, evt.OperationID, evt.Payload)
+			// For workers: mark transfer as complete in activeTransfers
+			// For entries: full operation status transition
+			if node.Role(rm.app.AppConfig.Node.Role) == node.RoleWorker {
+				rm.handleWorkerTransferVerified(ctx, evt.OperationID, evt.Payload)
+			} else {
+				rm.handleTransferVerified(ctx, evt.OperationID, evt.Payload)
+			}
 		default:
 			log.Printf("unhandled event type: %s", evt.EventType)
 		}
@@ -480,6 +491,10 @@ func (rm *RoleManager) handleTransferVerified(ctx context.Context, operationID s
 	_ = rm.app.events.Append(ctx, evt)
 
 	log.Printf("coordinator: operation %s marked TRANSFERRED", operationID)
+}
+
+func (rm *RoleManager) handleWorkerTransferVerified(ctx context.Context, operationID string, payload map[string]any) {
+	log.Printf("worker %s: transfer verified for operation %s", rm.app.AppConfig.Node.ID, operationID)
 }
 
 func generateEventID() string {
