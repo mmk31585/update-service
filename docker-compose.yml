@@ -1,0 +1,124 @@
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.19.0
+    container_name: update-elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+
+  mariadb:
+    image: mariadb:13
+    container_name: update-mariadb
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: file_service
+      MYSQL_USER: app
+      MYSQL_PASSWORD: secret
+    ports:
+      - "3306:3306"
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  nats:
+    image: nats:2.15-alpine
+    container_name: update-nats
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    command: ["-js", "-m", "8222"]
+    volumes:
+      - nats_data:/data/jetstream
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8222/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  node-1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: update-node-1
+    ports:
+      - "8081:8080"
+    env_file:
+      - .env
+    environment:
+      NODE_ID: node-1
+      NODE_ROLE: entry
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+      mariadb:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    restart: unless-stopped
+
+  node-2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: update-node-2
+    ports:
+      - "8082:8080"
+    env_file:
+      - .env
+    environment:
+      NODE_ID: node-2
+      NODE_ROLE: worker
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+      mariadb:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    restart: unless-stopped
+
+  node-3:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: update-node-3
+    ports:
+      - "8083:8080"
+    env_file:
+      - .env
+    environment:
+      NODE_ID: node-3
+      NODE_ROLE: worker
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+      mariadb:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  mariadb_data:
+  nats_data:
+  es_data:
