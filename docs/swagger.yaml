@@ -1,0 +1,759 @@
+basePath: /api/v1
+definitions:
+  gin.H:
+    additionalProperties: {}
+    type: object
+  internal_operation.CancelOperationInput:
+    properties:
+      reason:
+        type: string
+    type: object
+  internal_operation.CancelOperationResponse:
+    properties:
+      cancel_requested_at:
+        type: string
+      operation_id:
+        type: string
+      status:
+        type: string
+      status_url:
+        type: string
+      version:
+        type: integer
+    type: object
+  internal_operation.CreateOperationRequest:
+    properties:
+      client_reference:
+        type: string
+      deadline:
+        type: string
+      metadata:
+        additionalProperties: {}
+        type: object
+      options:
+        additionalProperties: {}
+        type: object
+      processor:
+        type: string
+      retry_policy:
+        $ref: '#/definitions/internal_operation.RetryPolicyReq'
+    required:
+    - processor
+    type: object
+  internal_operation.CreateOperationResponse:
+    properties:
+      created_at:
+        type: string
+      operation_id:
+        type: string
+      result_url:
+        type: string
+      stage:
+        type: string
+      status:
+        type: string
+      status_url:
+        type: string
+      upload_target:
+        $ref: '#/definitions/internal_operation.UploadTarget'
+      version:
+        type: integer
+    type: object
+  internal_operation.ErrorDetail:
+    properties:
+      code:
+        type: string
+      details:
+        items:
+          $ref: '#/definitions/internal_operation.ErrorDetailItem'
+        type: array
+      message:
+        type: string
+      operation_id:
+        type: string
+      request_id:
+        type: string
+      retryable:
+        type: boolean
+    type: object
+  internal_operation.ErrorDetailItem:
+    properties:
+      field:
+        type: string
+      reason:
+        type: string
+    type: object
+  internal_operation.ErrorResponse:
+    properties:
+      error:
+        $ref: '#/definitions/internal_operation.ErrorDetail'
+    type: object
+  internal_operation.FileOperationResponse:
+    properties:
+      input_file:
+        $ref: '#/definitions/internal_operation.InputFile'
+      operation_id:
+        type: string
+      result_url:
+        type: string
+      stage:
+        type: string
+      status:
+        type: string
+      status_url:
+        type: string
+      updated_at:
+        type: string
+      version:
+        type: integer
+    type: object
+  internal_operation.InputFile:
+    properties:
+      file_name:
+        type: string
+      sha256:
+        type: string
+      size_bytes:
+        type: integer
+    type: object
+  internal_operation.ListOperationsResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/internal_operation.OperationItem'
+        type: array
+      next_cursor:
+        type: string
+    type: object
+  internal_operation.OperationError:
+    properties:
+      code:
+        type: string
+      message:
+        type: string
+    type: object
+  internal_operation.OperationItem:
+    properties:
+      created_at:
+        type: string
+      max_attempts:
+        type: integer
+      operation_id:
+        type: string
+      processor:
+        type: string
+      retry_count:
+        type: integer
+      stage:
+        type: string
+      status:
+        type: string
+      updated_at:
+        type: string
+      version:
+        type: integer
+    type: object
+  internal_operation.OperationResponse:
+    properties:
+      cancel_requested_at:
+        type: string
+      created_at:
+        type: string
+      current_attempt_id:
+        type: string
+      current_job_id:
+        type: string
+      current_transfer_id:
+        type: string
+      deadline:
+        type: string
+      error:
+        $ref: '#/definitions/internal_operation.OperationError'
+      input_file:
+        $ref: '#/definitions/internal_operation.InputFile'
+      max_attempts:
+        type: integer
+      operation_id:
+        type: string
+      processor:
+        type: string
+      result_url:
+        type: string
+      retry_count:
+        type: integer
+      stage:
+        type: string
+      status:
+        type: string
+      status_url:
+        type: string
+      updated_at:
+        type: string
+      version:
+        type: integer
+    type: object
+  internal_operation.ResultResponse:
+    properties:
+      operation_id:
+        type: string
+      processor:
+        type: string
+      produced_at:
+        type: string
+      result_id:
+        type: string
+      schema_version:
+        type: integer
+      value:
+        additionalProperties: true
+        type: object
+    type: object
+  internal_operation.RetryOperationInput:
+    properties:
+      reason:
+        type: string
+    type: object
+  internal_operation.RetryOperationResponse:
+    properties:
+      current_attempt_id:
+        type: string
+      current_job_id:
+        type: string
+      max_attempts:
+        type: integer
+      operation_id:
+        type: string
+      retry_count:
+        type: integer
+      status:
+        type: string
+      status_url:
+        type: string
+      updated_at:
+        type: string
+      version:
+        type: integer
+    type: object
+  internal_operation.RetryPolicyReq:
+    properties:
+      max_attempts:
+        type: integer
+    type: object
+  internal_operation.UploadTarget:
+    properties:
+      expires_at:
+        type: string
+      headers:
+        additionalProperties:
+          type: string
+        type: object
+      max_bytes:
+        type: integer
+      method:
+        type: string
+      url:
+        type: string
+    type: object
+host: localhost:8080
+info:
+  contact: {}
+  description: HTTP API for file upload, processing orchestration, and result retrieval
+  title: File Processing Service API
+  version: "1.0"
+paths:
+  /health:
+    get:
+      description: Returns the service health status
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/gin.H'
+      summary: Health check
+      tags:
+      - health
+  /health/live:
+    get:
+      description: Returns the service liveness status
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/gin.H'
+      summary: Liveness check
+      tags:
+      - health
+  /health/ready:
+    get:
+      description: Returns the service readiness status including dependency checks
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/gin.H'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/gin.H'
+      summary: Readiness check
+      tags:
+      - health
+  /operations:
+    get:
+      consumes:
+      - application/json
+      description: Returns a paginated list of operations. Status reads are authoritative
+        MariaDB reads.
+      parameters:
+      - description: Filter by operation status (e.g. QUEUED, COMPLETED)
+        example: QUEUED
+        in: query
+        name: status
+        type: string
+      - description: Filter by processor name
+        example: image-processor
+        in: query
+        name: processor
+        type: string
+      - description: Pagination cursor
+        example: cursor-abc
+        in: query
+        name: cursor
+        type: string
+      - description: Page size (default 50)
+        example: 20
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_operation.ListOperationsResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_operation.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_operation.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/internal_operation.ErrorResponse'
+      summary: List operations
+      tags:
+      - operations
+    post:
+      consumes:
+      - application/json
+      description: Creates the durable operation row and initial append-only event.
+        Does not schedule work before the input upload is complete.
+      parameters:
+      - description: Idempotency key
+        example: ops-create-001
+        in: header
+        name: Idempotency-Key
+        required: true
+        type: string
+      - description: Create operation request
+        in: body
+        name: createOperationRequest
+        required: true
+        schema:
+          $ref: '#/definitions/internal_operation.CreateOperationRequest'
+      produces:
+      - application/json
+      responses:
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/internal_operation.CreateOperationResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_operation.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_operation.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_operation.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/internal_operation.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/internal_operation.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/internal_operation.ErrorResponse'
+      summary: Create an operation
+      tags:
+      - operations
+  /operations/{id}:
+    get:
+      consumes:
+      - application/json
+      description: Status reads are authoritative MariaDB reads served by an entry-capable
+        instance.
+      parameters:
+      - description: ETag for conditional request
+        example: '"1"'
+        in: header
+        name: If-None-Match
+        type: string
+      - description: Operation ID
+        example: op-abc123
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_operation.OperationResponse'
+        "304":
+          description: Not Modified
+          schema:
+            $ref: '#/definitions/internal_operation.OperationResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_operation.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_operation.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_operation.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/internal_operation.ErrorResponse'
+      summary: Read operation status
+      tags:
+      - operations
+  /operations/{id}/cancel:
+    post:
+      consumes:
+      - application/json
+      description: Cancellation is an idempotent intent. Persists cancel_requested_at
+        and emits an event.
+      parameters:
+      - description: Idempotency key
+        example: ops-cancel-001
+        in: header
+        name: Idempotency-Key
+        required: true
+        type: string
+      - description: Operation version precondition
+        example: '"2"'
+        in: header
+        name: If-Match
+        type: string
+      - description: Operation ID
+        example: op-abc123
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Cancellation reason
+        in: body
+        name: cancelRequest
+        schema:
+          $ref: '#/definitions/internal_operation.CancelOperationInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_operation.CancelOperationResponse'
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/internal_operation.CancelOperationResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_operation.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_operation.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_operation.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_operation.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/internal_operation.ErrorResponse'
+        "412":
+          description: Precondition Failed
+          schema:
+            $ref: '#/definitions/internal_operation.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/internal_operation.ErrorResponse'
+      summary: Cancel an operation
+      tags:
+      - operations
+  /operations/{id}/file:
+    put:
+      consumes:
+      - multipart/form-data
+      - application/octet-stream
+      description: The client streams bytes to the entry upload endpoint. The entry
+        streams them to a node-local ingress file, enforces size limits, computes
+        SHA-256 incrementally, and records the file metadata. Supports raw binary
+        body (application/octet-stream) or multipart form data with a "file" field.
+      parameters:
+      - description: Idempotency key
+        example: ops-file-001
+        in: header
+        name: Idempotency-Key
+        required: true
+        type: string
+      - description: Operation version precondition
+        example: '"1"'
+        in: header
+        name: If-Match
+        type: string
+      - description: Optional, must match bytes received
+        example: 1048576
+        in: header
+        name: Content-Length
+        type: integer
+      - description: SHA-256 digest of request body
+        example: sha256=abc123...
+        in: header
+        name: Digest
+        type: string
+      - description: Declared byte count
+        example: 1048576
+        in: header
+        name: X-File-Size
+        type: integer
+      - description: Client filename metadata
+        example: image.png
+        in: header
+        name: X-File-Name
+        type: string
+      - description: Operation ID
+        example: op-abc123
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: File to upload
+        in: formData
+        name: file
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_operation.FileOperationResponse'
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/internal_operation.FileOperationResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_operation.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_operation.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_operation.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_operation.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/internal_operation.ErrorResponse'
+        "412":
+          description: Precondition Failed
+          schema:
+            $ref: '#/definitions/internal_operation.ErrorResponse'
+        "413":
+          description: Request Entity Too Large
+          schema:
+            $ref: '#/definitions/internal_operation.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/internal_operation.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/internal_operation.ErrorResponse'
+      summary: Stream the input file
+      tags:
+      - operations
+  /operations/{id}/result:
+    get:
+      consumes:
+      - application/json
+      description: Returns the single structured result for a completed operation.
+      parameters:
+      - description: Operation ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_operation.ResultResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_operation.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_operation.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_operation.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/internal_operation.ErrorResponse'
+        "410":
+          description: Gone
+          schema:
+            $ref: '#/definitions/internal_operation.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/internal_operation.ErrorResponse'
+      summary: Retrieve a result
+      tags:
+      - operations
+  /operations/{id}/retry:
+    post:
+      consumes:
+      - application/json
+      description: Retry is allowed only from FAILED or TIMEOUT, subject to budget
+        and policy.
+      parameters:
+      - description: Idempotency key
+        example: ops-retry-001
+        in: header
+        name: Idempotency-Key
+        required: true
+        type: string
+      - description: Operation version precondition
+        example: '"2"'
+        in: header
+        name: If-Match
+        type: string
+      - description: Operation ID
+        example: op-abc123
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Retry reason
+        in: body
+        name: retryRequest
+        schema:
+          $ref: '#/definitions/internal_operation.RetryOperationInput'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_operation.RetryOperationResponse'
+        "202":
+          description: Accepted
+          schema:
+            $ref: '#/definitions/internal_operation.RetryOperationResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/internal_operation.ErrorResponse'
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/internal_operation.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_operation.ErrorResponse'
+        "409":
+          description: Conflict
+          schema:
+            $ref: '#/definitions/internal_operation.ErrorResponse'
+        "412":
+          description: Precondition Failed
+          schema:
+            $ref: '#/definitions/internal_operation.ErrorResponse'
+        "422":
+          description: Unprocessable Entity
+          schema:
+            $ref: '#/definitions/internal_operation.ErrorResponse'
+        "503":
+          description: Service Unavailable
+          schema:
+            $ref: '#/definitions/internal_operation.ErrorResponse'
+      summary: Retry an operation
+      tags:
+      - operations
+schemes:
+- http
+- https
+securityDefinitions:
+  Authorization:
+    description: Type "Bearer <token>" or "Basic <credentials>"
+    in: header
+    name: Authorization
+    type: apiKey
+  Idempotency-Key:
+    description: Required for create, upload, cancel, and retry requests
+    in: header
+    name: Idempotency-Key
+    type: apiKey
+swagger: "2.0"
