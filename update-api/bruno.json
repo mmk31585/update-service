@@ -1,0 +1,170 @@
+{
+  "info": {
+    "name": "File Processing Service API",
+    "_postman_id": "update-api-collection",
+    "description": "HTTP API for file upload, processing orchestration, and result retrieval",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/health"
+          }
+        },
+        {
+          "name": "Liveness Check",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/health/live"
+          }
+        },
+        {
+          "name": "Readiness Check",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/health/ready"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Operations",
+      "item": [
+        {
+          "name": "Create Operation",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/operations",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "ops-create-001" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"processor\": \"image-processor\",\n  \"client_reference\": \"req-001\",\n  \"metadata\": { \"source\": \"upload\" },\n  \"options\": { \"compress\": true },\n  \"retry_policy\": { \"max_attempts\": 3 }\n}"
+            }
+          }
+        },
+        {
+          "name": "List Operations",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/operations",
+            "query": [
+              { "key": "status", "value": "QUEUED" },
+              { "key": "limit", "value": "20" }
+            ]
+          }
+        },
+        {
+          "name": "Get Operation",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/operations/{{op_id}}",
+            "header": [
+              { "key": "If-None-Match", "value": "\"1\"" }
+            ]
+          }
+        },
+        {
+          "name": "Cancel Operation",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/operations/{{op_id}}/cancel",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "ops-cancel-001" },
+              { "key": "If-Match", "value": "\"1\"" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"user_requested\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Retry Operation",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/v1/operations/{{op_id}}/retry",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "ops-retry-001" },
+              { "key": "If-Match", "value": "\"1\"" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"transient_failure\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Get Result",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/v1/operations/{{op_id}}/result"
+          }
+        }
+      ]
+    },
+    {
+      "name": "File Upload",
+      "item": [
+        {
+          "name": "Upload File (Multipart Form)",
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/api/v1/operations/{{op_id}}/file",
+            "header": [
+              { "key": "Idempotency-Key", "value": "ops-file-001" },
+              { "key": "If-Match", "value": "\"1\"" },
+              { "key": "X-File-Size", "value": "1048576" },
+              { "key": "X-File-Name", "value": "image.png" }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": ""
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Upload File (Raw Binary)",
+          "request": {
+            "method": "PUT",
+            "url": "{{base_url}}/api/v1/operations/{{op_id}}/file",
+            "header": [
+              { "key": "Content-Type", "value": "application/octet-stream" },
+              { "key": "Idempotency-Key", "value": "ops-file-001" },
+              { "key": "If-Match", "value": "\"1\"" },
+              { "key": "X-File-Size", "value": "1048576" },
+              { "key": "X-File-Name", "value": "image.bin" },
+              { "key": "Digest", "value": "sha256=abc123..." }
+            ],
+            "body": {
+              "mode": "file",
+              "file": {
+                "src": ""
+              }
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:8080" },
+    { "key": "op_id", "value": "" },
+    { "key": "idempotency_key", "value": "" }
+  ]
+}

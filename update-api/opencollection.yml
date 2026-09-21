@@ -1,0 +1,360 @@
+openapi: 3.0.0
+info:
+  title: File Processing Service API
+  description: HTTP API for file upload, processing orchestration, and result retrieval
+  version: "1.0"
+  contact:
+    name: File Processing Service
+
+servers:
+  - url: http://localhost:8080/api/v1
+    description: Local development server
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      description: Returns the service health status
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+  /health/live:
+    get:
+      summary: Liveness check
+      description: Returns the service liveness status
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+  /health/ready:
+    get:
+      summary: Readiness check
+      description: Returns the service readiness status including dependency checks
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+        "503":
+          description: Service Unavailable
+  /operations:
+    get:
+      summary: List operations
+      description: Returns a paginated list of operations
+      parameters:
+        - name: status
+          in: query
+          description: Filter by operation status
+          schema:
+            type: string
+        - name: processor
+          in: query
+          description: Filter by processor name
+          schema:
+            type: string
+        - name: cursor
+          in: query
+          description: Pagination cursor
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: Page size (default 50)
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                  next_cursor:
+                    type: string
+    post:
+      summary: Create an operation
+      description: Creates the durable operation row and initial append-only event
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - processor
+              properties:
+                processor:
+                  type: string
+                client_reference:
+                  type: string
+                metadata:
+                  type: object
+                options:
+                  type: object
+                retry_policy:
+                  type: object
+                  properties:
+                    max_attempts:
+                      type: integer
+      responses:
+        "202":
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+  /operations/{id}:
+    get:
+      summary: Read operation status
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: If-None-Match
+          in: header
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+        "304":
+          description: Not Modified
+  /operations/{id}/cancel:
+    post:
+      summary: Cancel an operation
+      description: Cancellation is an idempotent intent
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+        - name: If-Match
+          in: header
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+  /operations/{id}/retry:
+    post:
+      summary: Retry an operation
+      description: Retry is allowed only from FAILED or TIMEOUT
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+        - name: If-Match
+          in: header
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+  /operations/{id}/file:
+    put:
+      summary: Stream the input file
+      description: The client streams bytes to the entry upload endpoint. Supports raw binary body (application/octet-stream) or multipart form data with a file field.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+        - name: If-Match
+          in: header
+          schema:
+            type: string
+        - name: Content-Length
+          in: header
+          schema:
+            type: integer
+        - name: Digest
+          in: header
+          schema:
+            type: string
+        - name: X-File-Size
+          in: header
+          schema:
+            type: integer
+        - name: X-File-Name
+          in: header
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+        "202":
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+  /operations/{id}/result:
+    get:
+      summary: Retrieve a result
+      description: Returns the single structured result for a completed operation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+        "410":
+          description: Gone
+
+components:
+  schemas:
+    FileOperationResponse:
+      type: object
+      properties:
+        operation_id:
+          type: string
+        status:
+          type: string
+        stage:
+          type: string
+        input_file:
+          type: object
+          properties:
+            file_name:
+              type: string
+            sha256:
+              type: string
+            size_bytes:
+              type: integer
+        status_url:
+          type: string
+        result_url:
+          type: string
+        updated_at:
+          type: string
+        version:
+          type: integer
+    OperationResponse:
+      type: object
+      properties:
+        operation_id:
+          type: string
+        status:
+          type: string
+        stage:
+          type: string
+        processor:
+          type: string
+        input_file:
+          type: object
+        error:
+          type: object
+        version:
+          type: integer
+    ListOperationsResponse:
+      type: object
+      properties:
+        items:
+          type: array
+        next_cursor:
+          type: string
+    ResultResponse:
+      type: object
+      properties:
+        operation_id:
+          type: string
+        processor:
+          type: string
+        result_id:
+          type: string
+        value:
+          type: object
+        schema_version:
+          type: integer
