@@ -52,27 +52,48 @@ func (r *OperationRepository) Create(ctx context.Context, op *operation.Operatio
 }
 
 func (r *OperationRepository) GetByID(ctx context.Context, id operation.OperationID) (*operation.Operation, error) {
-  row := r.db.QueryRowContext(ctx, `
+	row := r.db.QueryRowContext(ctx, `
     SELECT id, status, stage, processor, retry_count, max_attempts,
       client_reference, created_at, updated_at, deadline,
       input_file_size, input_file_sha256, input_file_name,
       current_job_id, current_attempt_id, current_transfer_id,
       cancel_requested_at, error_code, error_message, error_details, version
     FROM operations WHERE id = ?`, id.String())
-  log.Printf("DB_OPERATION_GET operation_id=%s", id)
-  op, err := rowToOperation(row)
-  if err != nil {
-    log.Printf("DB_OPERATION_GET_ERROR operation_id=%s error=%v", id, err)
-    return nil, err
-  }
-  if op == nil {
-    log.Printf("DB_OPERATION_NOT_FOUND operation_id=%s", id)
-    return nil, nil
-  }
-  log.Printf("DB_OPERATION_READ_RESULT operation_id=%s status=%s stage=%s version=%d input_file_present=%t input_file_size=%d input_file_sha256=%s input_file_name=%s current_job_id=%s current_attempt_id=%s current_transfer_id=%s",
-    op.ID, op.Status, op.Stage, op.Version, op.InputFile != nil, op.InputFile.SizeBytes, op.InputFile.SHA256, op.InputFile.FileName,
-    op.CurrentJobID.String(), op.CurrentAttemptID.String(), op.CurrentTransferID.String())
-  return op, nil
+	log.Printf("DB_OPERATION_GET operation_id=%s", id)
+	op, err := rowToOperation(row)
+	log.Println(op, err)
+	if err != nil {
+		log.Printf("DB_OPERATION_GET_ERROR operation_id=%s error=%v", id, err)
+		return nil, err
+	}
+	if op == nil {
+		log.Printf("DB_OPERATION_NOT_FOUND operation_id=%s", id)
+		return nil, nil
+	}
+	log.Println(op, err)
+	var inputFileSize int64
+	var inputFileSHA256, inputFileName string
+	if op.InputFile != nil {
+		inputFileSize = op.InputFile.SizeBytes
+		inputFileSHA256 = op.InputFile.SHA256
+		inputFileName = op.InputFile.FileName
+	}
+	currentJobID := ""
+	if op.CurrentJobID != nil {
+		currentJobID = op.CurrentJobID.String()
+	}
+	currentAttemptID := ""
+	if op.CurrentAttemptID != nil {
+		currentAttemptID = op.CurrentAttemptID.String()
+	}
+	currentTransferID := ""
+	if op.CurrentTransferID != nil {
+		currentTransferID = op.CurrentTransferID.String()
+	}
+	log.Printf("DB_OPERATION_READ_RESULT operation_id=%s status=%s stage=%s version=%d input_file_present=%t input_file_size=%d input_file_sha256=%s input_file_name=%s current_job_id=%s current_attempt_id=%s current_transfer_id=%s",
+		op.ID, op.Status, op.Stage, op.Version, op.InputFile != nil, inputFileSize, inputFileSHA256, inputFileName,
+		currentJobID, currentAttemptID, currentTransferID)
+	return op, nil
 }
 
 func (r *OperationRepository) GetByIdempotencyKey(ctx context.Context, key string) (*operation.Operation, error) {
@@ -89,68 +110,87 @@ func (r *OperationRepository) GetByIdempotencyKey(ctx context.Context, key strin
 }
 
 func (r *OperationRepository) Update(ctx context.Context, op *operation.Operation) error {
-  log.Printf("DB_OPERATION_UPDATE operation_id=%s old_version=%d new_version=%d status=%s stage=%s input_file_size=%d input_file_sha256=%s input_file_name=%s current_job_id=%s current_attempt_id=%s current_transfer_id=%s",
-    op.ID, op.Version, op.Version+1, op.Status, op.Stage,
-    op.InputFile.SizeBytes, op.InputFile.SHA256, op.InputFile.FileName,
-    op.CurrentJobID.String(), op.CurrentAttemptID.String(), op.CurrentTransferID.String())
-  
-  var errorCode, errorMessage, errorDetails sql.NullString
-  if op.Error != nil {
-    if op.Error.Code != "" {
-      errorCode = sql.NullString{String: op.Error.Code, Valid: true}
-    }
-    if op.Error.Message != "" {
-      errorMessage = sql.NullString{String: op.Error.Message, Valid: true}
-    }
-    if op.Error.Details != nil {
-      b, err := json.Marshal(op.Error.Details)
-      if err != nil {
-        return err
-      }
-      errorDetails = sql.NullString{String: string(b), Valid: true}
-    }
-  }
+	var updateInputFileSize int64
+	var updateInputFileSHA256, updateInputFileName string
+	if op.InputFile != nil {
+		updateInputFileSize = op.InputFile.SizeBytes
+		updateInputFileSHA256 = op.InputFile.SHA256
+		updateInputFileName = op.InputFile.FileName
+	}
+	updateCurrentJobID := ""
+	if op.CurrentJobID != nil {
+		updateCurrentJobID = op.CurrentJobID.String()
+	}
+	updateCurrentAttemptID := ""
+	if op.CurrentAttemptID != nil {
+		updateCurrentAttemptID = op.CurrentAttemptID.String()
+	}
+	updateCurrentTransferID := ""
+	if op.CurrentTransferID != nil {
+		updateCurrentTransferID = op.CurrentTransferID.String()
+	}
+	log.Printf("DB_OPERATION_UPDATE operation_id=%s old_version=%d new_version=%d status=%s stage=%s input_file_size=%d input_file_sha256=%s input_file_name=%s current_job_id=%s current_attempt_id=%s current_transfer_id=%s",
+		op.ID, op.Version, op.Version+1, op.Status, op.Stage,
+		updateInputFileSize, updateInputFileSHA256, updateInputFileName,
+		updateCurrentJobID, updateCurrentAttemptID, updateCurrentTransferID)
 
-  var inputFileSize sql.NullInt64
-  var inputFileSHA256, inputFileName sql.NullString
-  if op.InputFile != nil {
-    inputFileSize = sql.NullInt64{Int64: op.InputFile.SizeBytes, Valid: true}
-    if op.InputFile.SHA256 != "" {
-      inputFileSHA256 = sql.NullString{String: op.InputFile.SHA256, Valid: true}
-    }
-    if op.InputFile.FileName != "" {
-      inputFileName = sql.NullString{String: op.InputFile.FileName, Valid: true}
-    }
-  }
+	var errorCode, errorMessage, errorDetails sql.NullString
+	if op.Error != nil {
+		if op.Error.Code != "" {
+			errorCode = sql.NullString{String: op.Error.Code, Valid: true}
+		}
+		if op.Error.Message != "" {
+			errorMessage = sql.NullString{String: op.Error.Message, Valid: true}
+		}
+		if op.Error.Details != nil {
+			b, err := json.Marshal(op.Error.Details)
+			if err != nil {
+				return err
+			}
+			errorDetails = sql.NullString{String: string(b), Valid: true}
+		}
+	}
 
-  result, err := r.db.ExecContext(ctx, `
+	var inputFileSize sql.NullInt64
+	var inputFileSHA256, inputFileName sql.NullString
+	if op.InputFile != nil {
+		inputFileSize = sql.NullInt64{Int64: op.InputFile.SizeBytes, Valid: true}
+		if op.InputFile.SHA256 != "" {
+			inputFileSHA256 = sql.NullString{String: op.InputFile.SHA256, Valid: true}
+		}
+		if op.InputFile.FileName != "" {
+			inputFileName = sql.NullString{String: op.InputFile.FileName, Valid: true}
+		}
+	}
+
+	result, err := r.db.ExecContext(ctx, `
     UPDATE operations SET status = ?, stage = ?, processor = ?, retry_count = ?,
       updated_at = ?, current_job_id = ?, current_attempt_id = ?, current_transfer_id = ?,
       cancel_requested_at = ?, error_code = ?, error_message = ?, error_details = ?,
       input_file_size = ?, input_file_sha256 = ?, input_file_name = ?,
       version = ?
     WHERE id = ? AND version = ?`,
-    op.Status, op.Stage, op.Processor, op.RetryCount,
-    op.UpdatedAt, jobIDString(op.CurrentJobID), attemptIDString(op.CurrentAttemptID), transferIDString(op.CurrentTransferID),
-    op.CancelRequestedAt, errorCode, errorMessage, errorDetails,
-    inputFileSize, inputFileSHA256, inputFileName,
-    op.Version+1, op.ID, op.Version,
-  )
-  if err != nil {
-    log.Printf("DB_OPERATION_UPDATE_ERROR operation_id=%s error=%v", op.ID, err)
-    return err
-  }
-  rowsAffected, err := result.RowsAffected()
-  if err != nil {
-    log.Printf("DB_OPERATION_UPDATE_ERROR operation_id=%s error=%v", op.ID, err)
-    return err
-  }
-  if rowsAffected == 0 {
-    log.Printf("DB_OPERATION_UPDATE_ZERO_ROWS operation_id=%s expected_version=%d", op.ID, op.Version)
-    return nil
-  }
-  log.Printf("DB_OPERATION_UPDATE_OK operation_id=%s rows_affected=%d new_version=%d", op.ID, rowsAffected, op.Version+1)
-  return nil
+		op.Status, op.Stage, op.Processor, op.RetryCount,
+		op.UpdatedAt, jobIDString(op.CurrentJobID), attemptIDString(op.CurrentAttemptID), transferIDString(op.CurrentTransferID),
+		op.CancelRequestedAt, errorCode, errorMessage, errorDetails,
+		inputFileSize, inputFileSHA256, inputFileName,
+    op.Version, op.ID, op.Version-1,
+	)
+	if err != nil {
+		log.Printf("DB_OPERATION_UPDATE_ERROR operation_id=%s error=%v", op.ID, err)
+		return err
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		log.Printf("DB_OPERATION_UPDATE_ERROR operation_id=%s error=%v", op.ID, err)
+		return err
+	}
+	if rowsAffected == 0 {
+		log.Printf("DB_OPERATION_UPDATE_ZERO_ROWS operation_id=%s expected_version=%d", op.ID, op.Version)
+		return nil
+	}
+	log.Printf("DB_OPERATION_UPDATE_OK operation_id=%s rows_affected=%d new_version=%d", op.ID, rowsAffected, op.Version+1)
+	return nil
 }
 
 func (r *OperationRepository) Transition(ctx context.Context, id operation.OperationID, from, to operation.OperationStatus, version int) (*operation.Operation, error) {

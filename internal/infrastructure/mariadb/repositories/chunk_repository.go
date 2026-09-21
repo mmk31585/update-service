@@ -17,14 +17,14 @@ func NewFileChunkRepository(db *DB) *FileChunkRepository {
 
 func (r *FileChunkRepository) Upsert(ctx context.Context, c *job.FileChunk) error {
 	_, err := r.db.ExecContext(ctx, `
-		INSERT INTO file_chunks (id, transfer_id, chunk_index, offset, chunk_size, checksum,
+		INSERT INTO file_chunks (id, transfer_id, chunk_index, chunk_offset, chunk_size, checksum,
 			publish_state, ack_state, received_at, acknowledged_at, version)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON DUPLICATE KEY UPDATE
 			chunk_size = VALUES(chunk_size), checksum = VALUES(checksum),
 			publish_state = VALUES(publish_state), ack_state = VALUES(ack_state),
 			acknowledged_at = VALUES(acknowledged_at), version = version + 1`,
-		c.ID.String(), c.TransferID.String(), c.ChunkIndex, c.Offset, c.ChunkSize, c.Checksum,
+		c.ID.String(), c.TransferID.String(), c.ChunkIndex, c.ChunkOffset, c.ChunkSize, c.Checksum,
 		c.PublishState, c.AckState, c.ReceivedAt, c.AcknowledgedAt, c.Version,
 	)
 	return err
@@ -32,7 +32,7 @@ func (r *FileChunkRepository) Upsert(ctx context.Context, c *job.FileChunk) erro
 
 func (r *FileChunkRepository) GetByTransferID(ctx context.Context, transferID job.TransferID) ([]*job.FileChunk, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, transfer_id, chunk_index, offset, chunk_size, checksum,
+		SELECT id, transfer_id, chunk_index, chunk_offset, chunk_size, checksum,
 			publish_state, ack_state, received_at, acknowledged_at, version
 		FROM file_chunks WHERE transfer_id = ? ORDER BY chunk_index ASC`,
 		transferID.String(),
@@ -48,7 +48,7 @@ func (r *FileChunkRepository) GetByTransferID(ctx context.Context, transferID jo
 		var receivedAt, acknowledgedAt sql.NullTime
 
 		err := rows.Scan(
-			&c.ID, &c.TransferID, &c.ChunkIndex, &c.Offset, &c.ChunkSize, &c.Checksum,
+			&c.ID, &c.TransferID, &c.ChunkIndex, &c.ChunkOffset, &c.ChunkSize, &c.Checksum,
 			&c.PublishState, &c.AckState, &receivedAt, &acknowledgedAt, &c.Version,
 		)
 		if err != nil {

@@ -109,7 +109,7 @@ CREATE TABLE IF NOT EXISTS file_chunks (
     id              VARCHAR(192) PRIMARY KEY,
     transfer_id     VARCHAR(64) NOT NULL,
     chunk_index     INT NOT NULL,
-    `offset`          BIGINT NOT NULL,
+    chunk_offset    BIGINT NOT NULL,
     chunk_size      BIGINT NOT NULL,
     checksum        VARCHAR(64) NOT NULL,
     publish_state   VARCHAR(32) NOT NULL,

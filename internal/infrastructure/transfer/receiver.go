@@ -231,7 +231,7 @@ active.mu.Lock()
     ID:           job.ChunkID(fmt.Sprintf("%s:%d", transferIDStr, chunkIndex)),
     TransferID:   job.TransferID(transferIDStr),
     ChunkIndex:   chunkIndex,
-    Offset:       offset,
+     ChunkOffset:  offset,
     ChunkSize:    int64(len(payload)),
     Checksum:     chunkSHA256,
     PublishState: "received",

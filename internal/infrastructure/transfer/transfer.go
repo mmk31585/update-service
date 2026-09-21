@@ -150,7 +150,7 @@ func (s *TransferSender) Execute(ctx context.Context, operationID string, target
 			ID:           job.ChunkID(chunkID),
 			TransferID:   transferID,
 			ChunkIndex:   chunkIdx,
-			Offset:       int64(chunkIdx) * int64(chunkSize),
+			ChunkOffset:  int64(chunkIdx) * int64(chunkSize),
 			ChunkSize:    int64(n),
 			Checksum:     chunkChecksum,
 			PublishState: "published",

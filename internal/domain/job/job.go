@@ -133,7 +133,7 @@ type FileChunk struct {
 	ID             ChunkID
 	TransferID     TransferID
 	ChunkIndex     int
-	Offset         int64
+	ChunkOffset    int64
 	ChunkSize      int64
 	Checksum       string
 	PublishState   string
