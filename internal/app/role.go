@@ -249,11 +249,12 @@ func (rm *RoleManager) handleProcessJob(ctx context.Context, cmd ProcessCommand)
 		totalChunks, _ := cmd.Payload["total_chunks"].(float64)
 		
 		log.Printf("WORKER_START_TRANSFER_PAYLOAD node_id=%s operation_id=%s transfer_id=%s file_size_bytes=%d file_sha256=%s chunk_size_bytes=%d total_chunks=%d", 
-			rm.app.AppConfig.Node.ID, cmd.OperationID, transferIDStr, int64(fileSize), fileSHA256, int64(chunkSize), totalChunks)
+			rm.app.AppConfig.Node.ID, cmd.OperationID, transferIDStr, int64(fileSize), fileSHA256, int64(chunkSize), int(totalChunks))
 		log.Printf("WORKER_TRANSFER_SNAPSHOT node_id=%s operation_id=%s job_id=%s attempt_id=%s transfer_id=%s file_size=%d file_sha256=%s chunk_size=%d total_chunks=%d consumer_name=%s chunk_subject=%s", 
 			rm.app.AppConfig.Node.ID, cmd.OperationID, cmd.JobID, cmd.Payload["attempt_id"].(string), 
-			transferIDStr, int64(fileSize), fileSHA256, int64(chunkSize), totalChunks,
-			fmt.Sprintf("chunks-%s", transferIDStr))
+			transferIDStr, int64(fileSize), fileSHA256, int64(chunkSize), int(totalChunks),
+			fmt.Sprintf("chunks-%s", transferIDStr),
+			nats.TransferChunksSubject(transferIDStr))
 	}
 	
 	log.Printf("PROCESS_UPDATE_TRANSFER_CHECK transfer_id=%s database_status=unknown in_memory_active=false received_chunks=0 expected_chunks=%d",
