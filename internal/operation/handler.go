@@ -71,21 +71,22 @@ func NewHandler(
 }
 
 // CreateOperations godoc
-// @Summary Create an operation
-// @Description Creates the durable operation row and initial append-only event. Does not schedule work before the input upload is complete.
-// @Tags operations
-// @Accept json
-// @Produce json
-// @Param   Idempotency-Key header    string  true   "Idempotency key" example(ops-create-001)
-// @Param   createOperationRequest body    CreateOperationRequest  true  "Create operation request" example({"processor":"image-processor","options":{"quality":90},"metadata":{"source":"web"},"client_reference":"ref-123"})
-// @Success 202 {object} operation.CreateOperationResponse
-// @Failure 400 {object} operation.ErrorResponse
-// @Failure 401 {object} operation.ErrorResponse
-// @Failure 403 {object} operation.ErrorResponse
-// @Failure 409 {object} operation.ErrorResponse
-// @Failure 422 {object} operation.ErrorResponse
-// @Failure 503 {object} operation.ErrorResponse
-// @Router /operations [post]
+//
+//	@Summary		Create an operation
+//	@Description	Creates the durable operation row and initial append-only event. Does not schedule work before the input upload is complete.
+//	@Tags			operations
+//	@Accept			json
+//	@Produce		json
+//	@Param			Idempotency-Key			header		string					true	"Idempotency key"			example(ops-create-001)
+//	@Param			createOperationRequest	body		CreateOperationRequest	true	"Create operation request"	example({"processor":"image-processor","options":{"quality":90},"metadata":{"source":"web"},"client_reference":"ref-123"})
+//	@Success		202						{object}	operation.CreateOperationResponse
+//	@Failure		400						{object}	operation.ErrorResponse
+//	@Failure		401						{object}	operation.ErrorResponse
+//	@Failure		403						{object}	operation.ErrorResponse
+//	@Failure		409						{object}	operation.ErrorResponse
+//	@Failure		422						{object}	operation.ErrorResponse
+//	@Failure		503						{object}	operation.ErrorResponse
+//	@Router			/operations [post]
 func (h *Handler) CreateOperations(c *gin.Context) {
 	idempotencyKey := c.GetHeader("Idempotency-Key")
 	if idempotencyKey == "" {
@@ -137,20 +138,21 @@ func (h *Handler) CreateOperations(c *gin.Context) {
 }
 
 // ListOperations godoc
-// @Summary List operations
-// @Description Returns a paginated list of operations. Status reads are authoritative MariaDB reads.
-// @Tags operations
-// @Accept json
-// @Produce json
-// @Param   status          query     string  false  "Filter by operation status (e.g. QUEUED, COMPLETED)" example(QUEUED)
-// @Param   processor       query     string  false  "Filter by processor name" example(image-processor)
-// @Param   cursor          query     string  false  "Pagination cursor" example(cursor-abc)
-// @Param   limit           query     int     false  "Page size (default 50)" example(20)
-// @Success 200 {object} operation.ListOperationsResponse
-// @Failure 401 {object} operation.ErrorResponse
-// @Failure 403 {object} operation.ErrorResponse
-// @Failure 503 {object} operation.ErrorResponse
-// @Router /operations [get]
+//
+//	@Summary		List operations
+//	@Description	Returns a paginated list of operations. Status reads are authoritative MariaDB reads.
+//	@Tags			operations
+//	@Accept			json
+//	@Produce		json
+//	@Param			status		query		string	false	"Filter by operation status (e.g. QUEUED, COMPLETED)"	example(QUEUED)
+//	@Param			processor	query		string	false	"Filter by processor name"								example(image-processor)
+//	@Param			cursor		query		string	false	"Pagination cursor"										example(cursor-abc)
+//	@Param			limit		query		int		false	"Page size (default 50)"								example(20)
+//	@Success		200			{object}	operation.ListOperationsResponse
+//	@Failure		401			{object}	operation.ErrorResponse
+//	@Failure		403			{object}	operation.ErrorResponse
+//	@Failure		503			{object}	operation.ErrorResponse
+//	@Router			/operations [get]
 func (h *Handler) ListOperations(c *gin.Context) {
 	status := c.Query("status")
 	processor := c.Query("processor")
@@ -206,20 +208,21 @@ func (h *Handler) ListOperations(c *gin.Context) {
 }
 
 // GetOperation godoc
-// @Summary Read operation status
-// @Description Status reads are authoritative MariaDB reads served by an entry-capable instance.
-// @Tags operations
-// @Accept json
-// @Produce json
-// @Param   If-None-Match   header    string  false  "ETag for conditional request" example("1")
-// @Param   id              path      string  true   "Operation ID" example(op-abc123)
-// @Success 200 {object} operation.OperationResponse
-// @Failure 304 {object} operation.OperationResponse
-// @Failure 401 {object} operation.ErrorResponse
-// @Failure 403 {object} operation.ErrorResponse
-// @Failure 404 {object} operation.ErrorResponse
-// @Failure 503 {object} operation.ErrorResponse
-// @Router /operations/{id} [get]
+//
+//	@Summary		Read operation status
+//	@Description	Status reads are authoritative MariaDB reads served by an entry-capable instance.
+//	@Tags			operations
+//	@Accept			json
+//	@Produce		json
+//	@Param			If-None-Match	header		string	false	"ETag for conditional request"	example("1")
+//	@Param			id				path		string	true	"Operation ID"					example(op-abc123)
+//	@Success		200				{object}	operation.OperationResponse
+//	@Failure		304				{object}	operation.OperationResponse
+//	@Failure		401				{object}	operation.ErrorResponse
+//	@Failure		403				{object}	operation.ErrorResponse
+//	@Failure		404				{object}	operation.ErrorResponse
+//	@Failure		503				{object}	operation.ErrorResponse
+//	@Router			/operations/{id} [get]
 func (h *Handler) GetOperation(c *gin.Context) {
 	id := c.Param("id")
 	if id == "" {
@@ -284,32 +287,33 @@ func (h *Handler) GetOperation(c *gin.Context) {
 }
 
 // FileOperations godoc
-// @Summary Stream the input file
-// @Description The client streams bytes to the entry upload endpoint. The entry streams them to a node-local ingress file, enforces size limits, computes SHA-256 incrementally, and records the file metadata. Supports raw binary body (application/octet-stream) or multipart form data with a "file" field.
-// @Tags operations
-// @Accept multipart/form-data
-// @Accept application/octet-stream
-// @Produce json
-// @Param   Idempotency-Key header    string  true   "Idempotency key" example(ops-file-001)
-// @Param   If-Match         header    string  false  "Operation version precondition" example("1")
-// @Param   Content-Length   header    integer false  "Optional, must match bytes received" example(1048576)
-// @Param   Digest           header    string  false  "SHA-256 digest of request body" example(sha256=abc123...)
-// @Param   X-File-Size      header    integer false  "Declared byte count" example(1048576)
-// @Param   X-File-Name      header    string  false  "Client filename metadata" example(image.png)
-// @Param   id               path      string  true   "Operation ID" example(op-abc123)
-// @Param   file             formData  file    true   "File to upload"
-// @Success 202 {object} operation.FileOperationResponse
-// @Failure 200 {object} operation.FileOperationResponse
-// @Failure 400 {object} operation.ErrorResponse
-// @Failure 401 {object} operation.ErrorResponse
-// @Failure 403 {object} operation.ErrorResponse
-// @Failure 404 {object} operation.ErrorResponse
-// @Failure 409 {object} operation.ErrorResponse
-// @Failure 412 {object} operation.ErrorResponse
-// @Failure 413 {object} operation.ErrorResponse
-// @Failure 422 {object} operation.ErrorResponse
-// @Failure 503 {object} operation.ErrorResponse
-// @Router /operations/{id}/file [put]
+//
+//	@Summary		Stream the input file
+//	@Description	The client streams bytes to the entry upload endpoint. The entry streams them to a node-local ingress file, enforces size limits, computes SHA-256 incrementally, and records the file metadata. Supports raw binary body (application/octet-stream) or multipart form data with a "file" field.
+//	@Tags			operations
+//	@Accept			multipart/form-data
+//	@Accept			application/octet-stream
+//	@Produce		json
+//	@Param			Idempotency-Key	header		string	true	"Idempotency key"						example(ops-file-001)
+//	@Param			If-Match		header		string	false	"Operation version precondition"		example("1")
+//	@Param			Content-Length	header		integer	false	"Optional, must match bytes received"	example(1048576)
+//	@Param			Digest			header		string	false	"SHA-256 digest of request body"		example(sha256=abc123...)
+//	@Param			X-File-Size		header		integer	false	"Declared byte count"					example(1048576)
+//	@Param			X-File-Name		header		string	false	"Client filename metadata"				example(image.png)
+//	@Param			id				path		string	true	"Operation ID"							example(op-abc123)
+//	@Param			file			formData	file	true	"File to upload"
+//	@Success		202				{object}	operation.FileOperationResponse
+//	@Failure		200				{object}	operation.FileOperationResponse
+//	@Failure		400				{object}	operation.ErrorResponse
+//	@Failure		401				{object}	operation.ErrorResponse
+//	@Failure		403				{object}	operation.ErrorResponse
+//	@Failure		404				{object}	operation.ErrorResponse
+//	@Failure		409				{object}	operation.ErrorResponse
+//	@Failure		412				{object}	operation.ErrorResponse
+//	@Failure		413				{object}	operation.ErrorResponse
+//	@Failure		422				{object}	operation.ErrorResponse
+//	@Failure		503				{object}	operation.ErrorResponse
+//	@Router			/operations/{id}/file [put]
 func (h *Handler) FileOperations(c *gin.Context) {
 	log.Printf("handler: FileOperations called for %s", c.Param("id"))
 	id := c.Param("id")
@@ -389,25 +393,26 @@ func (h *Handler) FileOperations(c *gin.Context) {
 }
 
 // CancelOperations godoc
-// @Summary Cancel an operation
-// @Description Cancellation is an idempotent intent. Persists cancel_requested_at and emits an event.
-// @Tags operations
-// @Accept json
-// @Produce json
-// @Param   Idempotency-Key header    string  true   "Idempotency key" example(ops-cancel-001)
-// @Param   If-Match         header    string  false  "Operation version precondition" example("2")
-// @Param   id               path      string  true   "Operation ID" example(op-abc123)
-// @Param   cancelRequest    body      operation.CancelOperationInput  false  "Cancellation reason" example({"reason":"user request"})
-// @Success 202 {object} operation.CancelOperationResponse
-// @Failure 200 {object} operation.CancelOperationResponse
-// @Failure 400 {object} operation.ErrorResponse
-// @Failure 401 {object} operation.ErrorResponse
-// @Failure 403 {object} operation.ErrorResponse
-// @Failure 404 {object} operation.ErrorResponse
-// @Failure 409 {object} operation.ErrorResponse
-// @Failure 412 {object} operation.ErrorResponse
-// @Failure 503 {object} operation.ErrorResponse
-// @Router /operations/{id}/cancel [post]
+//
+//	@Summary		Cancel an operation
+//	@Description	Cancellation is an idempotent intent. Persists cancel_requested_at and emits an event.
+//	@Tags			operations
+//	@Accept			json
+//	@Produce		json
+//	@Param			Idempotency-Key	header		string							true	"Idempotency key"					example(ops-cancel-001)
+//	@Param			If-Match		header		string							false	"Operation version precondition"	example("2")
+//	@Param			id				path		string							true	"Operation ID"						example(op-abc123)
+//	@Param			cancelRequest	body		operation.CancelOperationInput	false	"Cancellation reason"				example({"reason":"user request"})
+//	@Success		202				{object}	operation.CancelOperationResponse
+//	@Failure		200				{object}	operation.CancelOperationResponse
+//	@Failure		400				{object}	operation.ErrorResponse
+//	@Failure		401				{object}	operation.ErrorResponse
+//	@Failure		403				{object}	operation.ErrorResponse
+//	@Failure		404				{object}	operation.ErrorResponse
+//	@Failure		409				{object}	operation.ErrorResponse
+//	@Failure		412				{object}	operation.ErrorResponse
+//	@Failure		503				{object}	operation.ErrorResponse
+//	@Router			/operations/{id}/cancel [post]
 func (h *Handler) CancelOperations(c *gin.Context) {
 	id := c.Param("id")
 	if id == "" {
@@ -458,25 +463,26 @@ func (h *Handler) CancelOperations(c *gin.Context) {
 }
 
 // RetryOperations godoc
-// @Summary Retry an operation
-// @Description Retry is allowed only from FAILED or TIMEOUT, subject to budget and policy.
-// @Tags operations
-// @Accept json
-// @Produce json
-// @Param   Idempotency-Key header    string  true   "Idempotency key" example(ops-retry-001)
-// @Param   If-Match         header    string  false  "Operation version precondition" example("2")
-// @Param   id               path      string  true   "Operation ID" example(op-abc123)
-// @Param   retryRequest     body      operation.RetryOperationInput  false  "Retry reason" example({"reason":"timeout exceeded"})
-// @Success 202 {object} operation.RetryOperationResponse
-// @Failure 200 {object} operation.RetryOperationResponse
-// @Failure 401 {object} operation.ErrorResponse
-// @Failure 403 {object} operation.ErrorResponse
-// @Failure 404 {object} operation.ErrorResponse
-// @Failure 409 {object} operation.ErrorResponse
-// @Failure 412 {object} operation.ErrorResponse
-// @Failure 422 {object} operation.ErrorResponse
-// @Failure 503 {object} operation.ErrorResponse
-// @Router /operations/{id}/retry [post]
+//
+//	@Summary		Retry an operation
+//	@Description	Retry is allowed only from FAILED or TIMEOUT, subject to budget and policy.
+//	@Tags			operations
+//	@Accept			json
+//	@Produce		json
+//	@Param			Idempotency-Key	header		string							true	"Idempotency key"					example(ops-retry-001)
+//	@Param			If-Match		header		string							false	"Operation version precondition"	example("2")
+//	@Param			id				path		string							true	"Operation ID"						example(op-abc123)
+//	@Param			retryRequest	body		operation.RetryOperationInput	false	"Retry reason"						example({"reason":"timeout exceeded"})
+//	@Success		202				{object}	operation.RetryOperationResponse
+//	@Failure		200				{object}	operation.RetryOperationResponse
+//	@Failure		401				{object}	operation.ErrorResponse
+//	@Failure		403				{object}	operation.ErrorResponse
+//	@Failure		404				{object}	operation.ErrorResponse
+//	@Failure		409				{object}	operation.ErrorResponse
+//	@Failure		412				{object}	operation.ErrorResponse
+//	@Failure		422				{object}	operation.ErrorResponse
+//	@Failure		503				{object}	operation.ErrorResponse
+//	@Router			/operations/{id}/retry [post]
 func (h *Handler) RetryOperations(c *gin.Context) {
 	id := c.Param("id")
 	if id == "" {
@@ -531,20 +537,21 @@ func (h *Handler) RetryOperations(c *gin.Context) {
 }
 
 // ResultOperations godoc
-// @Summary Retrieve a result
-// @Description Returns the single structured result for a completed operation.
-// @Tags operations
-// @Accept json
-// @Produce json
-// @Param   id               path      string  true   "Operation ID"
-// @Success 200 {object} operation.ResultResponse
-// @Failure 401 {object} operation.ErrorResponse
-// @Failure 403 {object} operation.ErrorResponse
-// @Failure 404 {object} operation.ErrorResponse
-// @Failure 409 {object} operation.ErrorResponse
-// @Failure 410 {object} operation.ErrorResponse
-// @Failure 503 {object} operation.ErrorResponse
-// @Router /operations/{id}/result [get]
+//
+//	@Summary		Retrieve a result
+//	@Description	Returns the single structured result for a completed operation.
+//	@Tags			operations
+//	@Accept			json
+//	@Produce		json
+//	@Param			id	path		string	true	"Operation ID"
+//	@Success		200	{object}	operation.ResultResponse
+//	@Failure		401	{object}	operation.ErrorResponse
+//	@Failure		403	{object}	operation.ErrorResponse
+//	@Failure		404	{object}	operation.ErrorResponse
+//	@Failure		409	{object}	operation.ErrorResponse
+//	@Failure		410	{object}	operation.ErrorResponse
+//	@Failure		503	{object}	operation.ErrorResponse
+//	@Router			/operations/{id}/result [get]
 func (h *Handler) ResultOperations(c *gin.Context) {
 	id := c.Param("id")
 	if id == "" {
@@ -586,35 +593,38 @@ func (h *Handler) ResultOperations(c *gin.Context) {
 }
 
 // Health godoc
-// @Summary Health check
-// @Description Returns the service health status
-// @Tags health
-// @Produce json
-// @Success 200 {object} gin.H
-// @Router /health [get]
+//
+//	@Summary		Health check
+//	@Description	Returns the service health status
+//	@Tags			health
+//	@Produce		json
+//	@Success		200	{object}	gin.H
+//	@Router			/health [get]
 func (h *Handler) Health(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
 }
 
 // HealthLive godoc
-// @Summary Liveness check
-// @Description Returns the service liveness status
-// @Tags health
-// @Produce json
-// @Success 200 {object} gin.H
-// @Router /health/live [get]
+//
+//	@Summary		Liveness check
+//	@Description	Returns the service liveness status
+//	@Tags			health
+//	@Produce		json
+//	@Success		200	{object}	gin.H
+//	@Router			/health/live [get]
 func (h *Handler) HealthLive(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "alive"})
 }
 
 // HealthReady godoc
-// @Summary Readiness check
-// @Description Returns the service readiness status including dependency checks
-// @Tags health
-// @Produce json
-// @Success 200 {object} gin.H
-// @Failure 503 {object} gin.H
-// @Router /health/ready [get]
+//
+//	@Summary		Readiness check
+//	@Description	Returns the service readiness status including dependency checks
+//	@Tags			health
+//	@Produce		json
+//	@Success		200	{object}	gin.H
+//	@Failure		503	{object}	gin.H
+//	@Router			/health/ready [get]
 func (h *Handler) HealthReady(c *gin.Context) {
 	if err := h.app.ReadinessCheck(); err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{

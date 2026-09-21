@@ -5,7 +5,9 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,10 +22,16 @@ import (
 
 type RoleManager struct {
 	app *Application
+
+	activeTransfers   map[string]bool
+	activeTransfersMu sync.Mutex
 }
 
 func NewRoleManager(app *Application) *RoleManager {
-	return &RoleManager{app: app}
+	rm := &RoleManager{app: app}
+	rm.activeTransfers = make(map[string]bool)
+	rm.activeTransfersMu = sync.Mutex{}
+	return rm
 }
 
 func (rm *RoleManager) Start(ctx context.Context) error {
@@ -160,9 +168,8 @@ func (rm *RoleManager) startCommandConsumer(ctx context.Context) error {
 	subject := nats.NodeCommandSubject(nodeID)
 	consumerName := "cmd-processor-" + nodeID
 
-	var activeTransfers map[string]bool
-	activeTransfers = make(map[string]bool)
-	var activeTransfersMu sync.Mutex
+	rm.activeTransfers = make(map[string]bool)
+	rm.activeTransfersMu = sync.Mutex{}
 
 	_, err := rm.app.nats.Subscribe(ctx, subject, consumerName, func(msg jetstream.Msg) {
 		log.Printf("worker %s received command on %s", nodeID, msg.Subject())
@@ -176,6 +183,10 @@ func (rm *RoleManager) startCommandConsumer(ctx context.Context) error {
 
 		switch cmd.Type {
 		case "PROCESS_UPDATE":
+			log.Printf("PROCESS_UPDATE_RECEIVED node_id=%s operation_id=%s job_id=%s transfer_id=%s",
+				rm.app.AppConfig.Node.ID, cmd.OperationID, cmd.JobID, cmd.Payload["transfer_id"])
+			log.Printf("PROCESS_UPDATE_PUBLISH operation_id=%s job_id=%s attempt_id=%s transfer_id=%s worker_node_id=%s",
+				cmd.OperationID, cmd.JobID, cmd.Payload["attempt_id"], cmd.Payload["transfer_id"], rm.app.AppConfig.Node.ID)
 			rm.handleProcessJob(ctx, cmd)
 			_ = msg.Ack()
 		case "CANCEL_UPDATE":
@@ -189,9 +200,22 @@ func (rm *RoleManager) startCommandConsumer(ctx context.Context) error {
 					_ = msg.Nak()
 				} else {
 					transferIDStr, _ := cmd.Payload["transfer_id"].(string)
-					activeTransfersMu.Lock()
-					activeTransfers[transferIDStr] = true
-					activeTransfersMu.Unlock()
+					fileSize, _ := cmd.Payload["file_size_bytes"].(float64)
+					fileSHA256, _ := cmd.Payload["file_sha256"].(string)
+					chunkSize, _ := cmd.Payload["chunk_size_bytes"].(float64)
+					totalChunks, _ := cmd.Payload["total_chunks"].(float64)
+
+// Add DEBUG snapshot at worker transfer acceptance
+					log.Printf("WORKER_TRANSFER_SNAPSHOT node_id=%s operation_id=%s job_id=%s attempt_id=%s transfer_id=%s file_size=%d file_sha256=%s chunk_size=%d total_chunks=%d consumer_name=%s chunk_subject=%s",
+						rm.app.AppConfig.Node.ID, cmd.OperationID, cmd.JobID, cmd.Payload["attempt_id"].(string),
+						transferIDStr, int64(fileSize), fileSHA256, int64(chunkSize), int(totalChunks),
+						fmt.Sprintf("chunks-%s", transferIDStr),
+						nats.TransferChunksSubject(transferIDStr))
+
+					log.Printf("ACTIVE_TRANSFER_ADD transfer_id=%s", transferIDStr)
+					rm.activeTransfersMu.Lock()
+					rm.activeTransfers[transferIDStr] = true
+					rm.activeTransfersMu.Unlock()
 					_ = msg.Ack()
 				}
 			} else {
@@ -212,6 +236,33 @@ func (rm *RoleManager) startCommandConsumer(ctx context.Context) error {
 
 func (rm *RoleManager) handleProcessJob(ctx context.Context, cmd ProcessCommand) {
 	log.Printf("worker %s processing operation %s (job=%s)", rm.app.AppConfig.Node.ID, cmd.OperationID, cmd.JobID)
+	
+	log.Printf("PROCESS_UPDATE_SNAPSHOT node_id=%s operation_id=%s job_id=%s attempt_id=%s transfer_id=%s transfer_db_status=%s active_transfer=false received_chunks=0 expected_chunks=%d",
+		rm.app.AppConfig.Node.ID, cmd.OperationID, cmd.JobID, cmd.Payload["attempt_id"], cmd.Payload["transfer_id"], "unknown", 0)
+	
+	// Add START_TRANSFER payload logging for debugging
+	if cmd.Type == "START_TRANSFER" {
+		transferIDStr, _ := cmd.Payload["transfer_id"].(string)
+		fileSize, _ := cmd.Payload["file_size_bytes"].(float64)
+		fileSHA256, _ := cmd.Payload["file_sha256"].(string)
+		chunkSize, _ := cmd.Payload["chunk_size_bytes"].(float64)
+		totalChunks, _ := cmd.Payload["total_chunks"].(float64)
+		
+		log.Printf("WORKER_START_TRANSFER_PAYLOAD node_id=%s operation_id=%s transfer_id=%s file_size_bytes=%d file_sha256=%s chunk_size_bytes=%d total_chunks=%d", 
+			rm.app.AppConfig.Node.ID, cmd.OperationID, transferIDStr, int64(fileSize), fileSHA256, int64(chunkSize), totalChunks)
+		log.Printf("WORKER_TRANSFER_SNAPSHOT node_id=%s operation_id=%s job_id=%s attempt_id=%s transfer_id=%s file_size=%d file_sha256=%s chunk_size=%d total_chunks=%d consumer_name=%s chunk_subject=%s", 
+			rm.app.AppConfig.Node.ID, cmd.OperationID, cmd.JobID, cmd.Payload["attempt_id"].(string), 
+			transferIDStr, int64(fileSize), fileSHA256, int64(chunkSize), totalChunks,
+			fmt.Sprintf("chunks-%s", transferIDStr))
+	}
+	
+	log.Printf("PROCESS_UPDATE_TRANSFER_CHECK transfer_id=%s database_status=unknown in_memory_active=false received_chunks=0 expected_chunks=%d",
+		cmd.Payload["transfer_id"], 0)
+	
+	// Check if transfer is complete before processing
+	rm.checkTransferAndProceed(ctx, cmd.OperationID)
+	
+	log.Printf("PROCESS_UPDATE_ALLOWED transfer_id=%s reason=no_active_transfer", cmd.Payload["transfer_id"])
 
 	select {
 	case <-time.After(2 * time.Second):
@@ -282,17 +333,29 @@ func (rm *RoleManager) startCoordinatorTasks(ctx context.Context) error {
 func (rm *RoleManager) startEventConsumer(ctx context.Context) error {
 	consumerName := "coordinator-events-" + rm.app.AppConfig.Node.ID
 	_, err := rm.app.nats.Subscribe(ctx, nats.SubjectCoordinatorEvents, consumerName, func(msg jetstream.Msg) {
-		log.Printf("node %s received event on %s", rm.app.AppConfig.Node.ID, msg.Subject())
+		log.Printf("EVENT_RECEIVED node_id=%s subject=%s", rm.app.AppConfig.Node.ID, msg.Subject())
 
 		var evt struct {
-			EventType   string                 `json:"event_type"`
-			OperationID string                 `json:"operation_id"`
-			Payload     map[string]any         `json:"payload"`
+			ID            string         `json:"id"`
+			EventType     string         `json:"event_type"`
+			OperationID   string         `json:"operation_id"`
+			JobID         string         `json:"job_id"`
+			AttemptID     string         `json:"attempt_id"`
+			TransferID    string         `json:"transfer_id"`
+			CorrelationID string         `json:"correlation_id"`
+			Payload       map[string]any `json:"payload"`
 		}
 		if err := json.Unmarshal(msg.Data(), &evt); err != nil {
 			log.Printf("invalid event payload: %v", err)
 			_ = msg.Ack()
 			return
+		}
+
+		log.Printf("EVENT_DECODED node_id=%s event_id=%s event_type=%s operation_id=%s job_id=%s transfer_id=%s",
+			rm.app.AppConfig.Node.ID, evt.ID, evt.EventType, evt.OperationID, evt.JobID, evt.TransferID)
+
+		if evt.EventType == "" {
+			log.Printf("EVENT_EMPTY_TYPE node_id=%s subject=%s raw_message=%s", rm.app.AppConfig.Node.ID, msg.Subject(), string(msg.Data()))
 		}
 
 		switch event.EventType(evt.EventType) {
@@ -470,7 +533,7 @@ func (rm *RoleManager) handleTransferVerified(ctx context.Context, operationID s
 
 	now := time.Now().UTC()
 	op.Status = operation.StatusTransferred
-	op.Stage = operation.StageTransferring
+	op.Stage = operation.StageVerifying
 	op.UpdatedAt = now
 
 	if err := rm.app.operations.Update(ctx, op); err != nil {
@@ -494,7 +557,80 @@ func (rm *RoleManager) handleTransferVerified(ctx context.Context, operationID s
 }
 
 func (rm *RoleManager) handleWorkerTransferVerified(ctx context.Context, operationID string, payload map[string]any) {
-	log.Printf("worker %s: transfer verified for operation %s", rm.app.AppConfig.Node.ID, operationID)
+	log.Printf("worker: operation %s transfer verified", operationID)
+
+	// Mark any active transfers as complete for this operation
+	rm.activeTransfersMu.Lock()
+	for transferIDStr := range rm.activeTransfers {
+		if strings.Contains(transferIDStr, operationID) {
+			delete(rm.activeTransfers, transferIDStr)
+			log.Printf("ACTIVE_TRANSFER_REMOVE transfer_id=%s reason=transfer_verified", transferIDStr)
+			log.Printf("worker: transfer %s marked complete, proceeding with processing", transferIDStr)
+		}
+	}
+	rm.activeTransfersMu.Unlock()
+
+	// Also update operation status to indicate transfer is complete
+	op, err := rm.app.operations.GetByID(ctx, operation.OperationID(operationID))
+	if err != nil {
+		log.Printf("worker: load operation %s: %v", operationID, err)
+		return
+	}
+	if op == nil {
+		log.Printf("worker: operation not found: %s", operationID)
+		return
+	}
+
+	now := time.Now().UTC()
+	op.Status = operation.StatusTransferred
+	op.Stage = operation.StageVerifying
+	op.UpdatedAt = now
+
+	if err := rm.app.operations.Update(ctx, op); err != nil {
+		log.Printf("worker: update operation %s: %v", operationID, err)
+		return
+	}
+
+	evt := &event.OperationEvent{
+		ID:            event.EventID(generateEventID()),
+		OperationID:   operationID,
+		EventType:     event.EventTypeOperationTransferred,
+		Payload:       map[string]any{"payload": payload},
+		CorrelationID: operationID,
+		IssuedAt:      now,
+		ActorNodeID:   rm.app.AppConfig.Node.ID,
+		Version:       1,
+	}
+	_ = rm.app.events.Append(ctx, evt)
+
+	log.Printf("worker: operation %s marked TRANSFERRED", operationID)
+}
+
+func (rm *RoleManager) checkTransferAndProceed(ctx context.Context, operationID string) {
+	// Check if there are any active transfers for this operation
+	rm.activeTransfersMu.Lock()
+	hasActiveTransfer := false
+	for transferIDStr := range rm.activeTransfers {
+		if strings.Contains(transferIDStr, operationID) {
+			hasActiveTransfer = true
+			log.Printf("ACTIVE_TRANSFER_CHECK transfer_id=%s active=true", transferIDStr)
+			log.Printf("worker: transfer %s still active, waiting...", transferIDStr)
+			break
+		}
+	}
+	if !hasActiveTransfer {
+		log.Printf("ACTIVE_TRANSFER_CHECK transfer_id=%s active=false", operationID)
+	}
+	rm.activeTransfersMu.Unlock()
+
+	if hasActiveTransfer {
+		log.Printf("worker: transfer for operation %s still in progress, deferring processing", operationID)
+		// Wait a bit and check again - in a real implementation, would use a channel or timer
+		time.Sleep(500 * time.Millisecond)
+		rm.checkTransferAndProceed(ctx, operationID)
+	} else {
+		log.Printf("worker: no active transfers for operation %s, proceeding with processing", operationID)
+	}
 }
 
 func generateEventID() string {
