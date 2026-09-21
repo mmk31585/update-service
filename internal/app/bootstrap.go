@@ -5,16 +5,18 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"net"
 
 	"github.com/gin-gonic/gin"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/pressly/goose/v3"
 
+	"update/docs"
 	"update/internal/config"
+	"update/internal/infrastructure/elasticsearch"
 	mariadb "update/internal/infrastructure/mariadb/repositories"
 	"update/internal/infrastructure/nats"
 	"update/internal/infrastructure/transfer"
-	"update/internal/infrastructure/elasticsearch"
 )
 
 func Bootstrap(ctx context.Context) (*Application, error) {
@@ -22,6 +24,7 @@ func Bootstrap(ctx context.Context) (*Application, error) {
 	if err != nil {
 		return nil, err
 	}
+	docs.SwaggerInfo.Host = net.JoinHostPort("localhost", cnf.HTTP.Port)
 
 	gin.SetMode(cnf.App.GinMode)
 

@@ -24,7 +24,7 @@ type Application struct {
 	router    *gin.Engine
 	db        *sql.DB
 
-	elasticClient *elasticsearch.Client
+	elasticClient  *elasticsearch.Client
 	elasticIndexer *elasticsearch.Indexer
 
 	operations       ports.OperationRepository
@@ -51,8 +51,8 @@ func New(cnf *config.ApplicationConfig, ops ports.OperationRepository, jobs port
 	return &Application{
 		AppConfig:        cnf,
 		db:               db,
-		elasticClient:     elasticClient,
-		elasticIndexer:    elasticIndexer,
+		elasticClient:    elasticClient,
+		elasticIndexer:   elasticIndexer,
 		operations:       ops,
 		jobs:             jobs,
 		attempts:         attempts,

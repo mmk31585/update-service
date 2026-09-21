@@ -2,3 +2,4 @@ docs/doc
 .env
 .idea
 bin
+.env.local

@@ -52,7 +52,7 @@ func (app *Application) RegisterRouter(r *gin.Engine) {
 	r.Use(CorrelationMiddleware())
 	r.Use(RecoveryMiddleware())
 	r.Use(SanitizeErrorMiddleware())
-	r.Use(CORSMiddleware(strings.Split(app.AppConfig.HTTP.CorsOrigin, ",")))
+	// r.Use(CORSMiddleware(strings.Split(app.AppConfig.HTTP.CorsOrigin, ",")))
 
 	api := r.Group("/api/v1")
 	{

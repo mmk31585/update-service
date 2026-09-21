@@ -3,8 +3,8 @@ package elasticsearch
 import (
 	"time"
 
-	"update/internal/domain/operation"
 	"update/internal/domain/event"
+	"update/internal/domain/operation"
 )
 
 type CompletedDocument struct {

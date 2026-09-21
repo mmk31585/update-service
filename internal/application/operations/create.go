@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
+	"fmt"
 	"time"
 
 	"update/internal/application/ports"
@@ -55,6 +57,13 @@ func NewCreateOperationUseCase(
 func (uc *CreateOperationUseCase) Execute(ctx context.Context, input CreateOperationInput, idempotencyKey, method, path string) (*CreateOperationOutput, error) {
 	now := time.Now().UTC()
 
+	if cached, data, _, err := uc.idempotency.Get(ctx, idempotencyKey, method, path); err == nil && cached != "" {
+		var out CreateOperationOutput
+		if err := json.Unmarshal(data, &out); err == nil {
+			return &out, nil
+		}
+	}
+
 	maxAttempts := 3
 	if input.RetryPolicy != nil && input.RetryPolicy.MaxAttempts > 0 {
 		maxAttempts = input.RetryPolicy.MaxAttempts
@@ -101,7 +110,7 @@ func (uc *CreateOperationUseCase) Execute(ctx context.Context, input CreateOpera
 	}
 	_ = uc.events.Append(ctx, evt)
 
-	return &CreateOperationOutput{
+	out := &CreateOperationOutput{
 		OperationID:  opID,
 		Status:       operation.StatusCreated,
 		Stage:        operation.StageWaitingForUpload,
@@ -110,7 +119,12 @@ func (uc *CreateOperationUseCase) Execute(ctx context.Context, input CreateOpera
 		ResultURL:    uc.baseURL + "/api/v1/operations/" + opID.String() + "/result",
 		CreatedAt:    now,
 		Version:      1,
-	}, nil
+	}
+
+	b, _ := json.Marshal(out)
+	_ = uc.idempotency.Store(ctx, idempotencyKey, method, path, fmt.Sprintf("%x", opID), string(b), now.Add(1*time.Hour))
+
+	return out, nil
 }
 
 func generateID(prefix string) string {

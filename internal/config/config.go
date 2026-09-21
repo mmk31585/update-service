@@ -77,17 +77,17 @@ type OperationConfig struct {
 }
 
 type ElasticConfig struct {
-	Enabled         bool
-	URL             string
-	Username        string
-	Password        string
-	Index           string
-	Workers         int
-	ChannelCap      int
-	FlushBytes      int
-	FlushInterval   time.Duration
-	MaxRetries      int
-	DLQPath         string
+	Enabled       bool
+	URL           string
+	Username      string
+	Password      string
+	Index         string
+	Workers       int
+	ChannelCap    int
+	FlushBytes    int
+	FlushInterval time.Duration
+	MaxRetries    int
+	DLQPath       string
 }
 
 func init() {

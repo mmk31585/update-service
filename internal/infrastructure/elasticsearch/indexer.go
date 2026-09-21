@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"update/internal/domain/operation"
 	"update/internal/domain/event"
+	"update/internal/domain/operation"
 )
 
 const (
@@ -23,17 +23,17 @@ const (
 )
 
 type Indexer struct {
-	client       *Client
-	index        string
-	nodeID       string
-	ch           chan indexedDoc
-	wg           sync.WaitGroup
-	mu           sync.Mutex
-	buffer       []indexedDoc
-	bufBytes     int
-	bufCount     int
-	flushCh      chan struct{}
-	closed       chan struct{}
+	client   *Client
+	index    string
+	nodeID   string
+	ch       chan indexedDoc
+	wg       sync.WaitGroup
+	mu       sync.Mutex
+	buffer   []indexedDoc
+	bufBytes int
+	bufCount int
+	flushCh  chan struct{}
+	closed   chan struct{}
 }
 
 type indexedDoc struct {
@@ -167,9 +167,9 @@ func (i *Indexer) dlq(op *operation.Operation, evt *event.OperationEvent) {
 
 func (i *Indexer) dlqFromDoc(doc indexedDoc) {
 	entry := struct {
-		FailedAt  time.Time `json:"failed_at"`
-		OpID      string    `json:"operation_id"`
-		Document  []byte    `json:"document"`
+		FailedAt time.Time `json:"failed_at"`
+		OpID     string    `json:"operation_id"`
+		Document []byte    `json:"document"`
 	}{
 		FailedAt: time.Now().UTC(),
 		OpID:     doc.opID,
