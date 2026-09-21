@@ -28,6 +28,15 @@ func (r *JobAttemptRepository) Create(ctx context.Context, a *job.JobAttempt) er
 			}
 			errorDetails = sql.NullString{String: string(b), Valid: true}
 		}
+		var errorCode, errorMessage *string
+		if a.Error != nil {
+			if a.Error.Code != "" {
+				errorCode = &a.Error.Code
+			}
+			if a.Error.Message != "" {
+				errorMessage = &a.Error.Message
+			}
+		}
 
 		_, err := tx.ExecContext(ctx, `
 			INSERT INTO job_attempts (id, job_id, operation_id, node_id, attempt_number,
@@ -36,7 +45,7 @@ func (r *JobAttemptRepository) Create(ctx context.Context, a *job.JobAttempt) er
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			a.ID.String(), a.JobID.String(), a.OperationID, a.NodeID, a.AttemptNumber,
 			a.Status, a.CommandID, a.ClaimToken, a.LeaseUntil, nullString(a.ProcessingID),
-			nullString(&a.Error.Code), nullString(&a.Error.Message), errorDetails,
+			nullString(errorCode), nullString(errorMessage), errorDetails,
 			a.StartedAt, a.CompletedAt, a.Version,
 		)
 		return err

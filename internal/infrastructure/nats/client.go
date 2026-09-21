@@ -2,6 +2,7 @@ package nats
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"sync"
@@ -139,22 +140,68 @@ func (c *Client) PublishWithHeaders(ctx context.Context, subject string, data []
 }
 
 func (c *Client) PublishCommand(ctx context.Context, nodeID, commandType string, payload []byte) error {
-	subject := NodeCommandSubject(nodeID)
-	_, err := c.JetStream.Publish(ctx, subject, payload)
-	if err != nil {
-		return fmt.Errorf("publish command %s to %s: %w", commandType, subject, err)
-	}
-	log.Printf("published command %s to %s", commandType, subject)
-	return nil
+  subject := NodeCommandSubject(nodeID)
+  cmdID := extractField(payload, "command_id")
+  opID := extractField(payload, "operation_id")
+  jobID := extractField(payload, "job_id")
+  transferID := extractNestedField(payload, "payload", "transfer_id")
+  log.Printf("NATS_COMMAND_PUBLISH subject=%s command_type=%s command_id=%s operation_id=%s job_id=%s transfer_id=%s destination_node_id=%s",
+    subject, commandType, cmdID, opID, jobID, transferID, nodeID)
+  if commandType == "START_TRANSFER" {
+    fileSize := extractField(payload, "file_size_bytes")
+    totalChunks := extractField(payload, "total_chunks")
+    fileSHA256 := extractNestedField(payload, "payload", "file_sha256")
+    log.Printf("START_TRANSFER_PUBLISH node_id=%s worker_node_id=%s operation_id=%s job_id=%s attempt_id=%s transfer_id=%s file_size_bytes=%s chunk_size_bytes=%s total_chunks=%s file_sha256=%s checksum_algorithm=%s subject=%s",
+      nodeID, nodeID, opID, jobID, extractNestedField(payload, "payload", "attempt_id"), transferID, fileSize, extractNestedField(payload, "payload", "chunk_size_bytes"), totalChunks, fileSHA256, extractNestedField(payload, "payload", "checksum_algorithm"), subject)
+  }
+  _, err := c.JetStream.Publish(ctx, subject, payload)
+  if err != nil {
+    log.Printf("NATS_COMMAND_PUBLISH_ERROR subject=%s command_type=%s error=%v", subject, commandType, err)
+    return fmt.Errorf("publish command %s to %s: %w", commandType, subject, err)
+  }
+  log.Printf("NATS_COMMAND_PUBLISHED subject=%s command_type=%s command_id=%s", subject, commandType, cmdID)
+  return nil
+}
+
+func extractField(payload []byte, field string) string {
+  var obj map[string]any
+  _ = json.Unmarshal(payload, &obj)
+  if v, ok := obj[field]; ok {
+    switch s := v.(type) {
+    case string:
+      return s
+    case float64:
+      return fmt.Sprintf("%v", s)
+    }
+  }
+  return ""
+}
+
+func extractNestedField(payload []byte, outer, inner string) string {
+  var obj map[string]any
+  _ = json.Unmarshal(payload, &obj)
+  if outerObj, ok := obj[outer].(map[string]any); ok {
+    if v, ok := outerObj[inner]; ok {
+      switch s := v.(type) {
+      case string:
+        return s
+      case float64:
+        return fmt.Sprintf("%v", s)
+      }
+    }
+  }
+  return ""
 }
 
 func (c *Client) PublishEvent(ctx context.Context, eventType string, payload []byte) error {
-	subject := SubjectCoordinatorEvents
-	_, err := c.JetStream.Publish(ctx, subject, payload)
-	if err != nil {
-		return fmt.Errorf("publish event %s to %s: %w", eventType, subject, err)
-	}
-	return nil
+  subject := SubjectCoordinatorEvents
+  log.Printf("EVENT_PUBLISH subject=%s event_id=%s event_type=%s operation_id=%s job_id=%s transfer_id=%s",
+    subject, extractField(payload, "id"), eventType, extractField(payload, "operation_id"), extractField(payload, "job_id"), extractNestedField(payload, "payload", "transfer_id"))
+  _, err := c.JetStream.Publish(ctx, subject, payload)
+  if err != nil {
+    return fmt.Errorf("publish event %s to %s: %w", eventType, subject, err)
+  }
+  return nil
 }
 
 func (c *Client) Subscribe(ctx context.Context, subject, consumerName string, handler jetstream.MessageHandler) (jetstream.Consumer, error) {
@@ -162,7 +209,7 @@ func (c *Client) Subscribe(ctx context.Context, subject, consumerName string, ha
 		Durable:        consumerName,
 		FilterSubjects: []string{subject},
 		AckPolicy:      jetstream.AckExplicitPolicy,
-		DeliverPolicy:  jetstream.DeliverNewPolicy,
+		DeliverPolicy:  jetstream.DeliverAllPolicy,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create consumer %s for %s: %w", consumerName, subject, err)

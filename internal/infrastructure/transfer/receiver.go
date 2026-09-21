@@ -105,14 +105,17 @@ func (r *TransferReceiver) AcceptTransfer(ctx context.Context, cmd map[string]an
 		}
 	}
 
-	manifestPath := filepath.Join(stagingPath, "manifest.json")
-	now := time.Now().UTC()
-	deadlineAt, _ := time.Parse(time.RFC3339, transferDeadlineStr)
-	if deadlineAt.IsZero() {
-		deadlineAt = now.Add(30 * time.Minute)
-	}
+manifestPath := filepath.Join(stagingPath, "manifest.json")
+  now := time.Now().UTC()
+  deadlineAt, _ := time.Parse(time.RFC3339, transferDeadlineStr)
+  if deadlineAt.IsZero() {
+    deadlineAt = now.Add(30 * time.Minute)
+  }
 
-	transfer.Status = job.TransferStatusAccepted
+  log.Printf("TRANSFER_ACCEPT_METADATA transfer_id=%s file_size_bytes=%d total_chunks=%d file_sha256=%s",
+    transferID, int64(fileSize), int(totalChunks), fileSHA256)
+
+  transfer.Status = job.TransferStatusAccepted
 	transfer.AcceptedAt = &now
 	if err := r.transfers.Update(ctx, transfer); err != nil {
 		f.Close()
@@ -133,36 +136,30 @@ func (r *TransferReceiver) AcceptTransfer(ctx context.Context, cmd map[string]an
 		cancel:       cancel,
 	}
 
-	consumerName := fmt.Sprintf("chunks-%s", transferID)
-	_, err = r.nats.Subscribe(childCtx, nats.TransferChunksSubject(transferIDStr), consumerName, func(msg jetstream.Msg) {
-		r.handleChunk(childCtx, active, msg)
-		_ = msg.Ack()
-	})
-	if err != nil {
-		cancel()
-		f.Close()
-		return nil, fmt.Errorf("subscribe chunks: %w", err)
-	}
+consumerName := fmt.Sprintf("chunks-%s", transferID)
+  chunkSubject := nats.TransferChunksSubject(transferIDStr)
+  log.Printf("TRANSFER_CONSUMER_CREATE_START transfer_id=%s subject=%s", transferID, chunkSubject)
+  _, err = r.nats.Subscribe(childCtx, chunkSubject, consumerName, func(msg jetstream.Msg) {
+    r.handleChunk(childCtx, active, msg)
+    _ = msg.Ack()
+  })
+  if err != nil {
+    cancel()
+    f.Close()
+    return nil, fmt.Errorf("subscribe chunks: %w", err)
+  }
+  log.Printf("TRANSFER_CONSUMER_CREATED transfer_id=%s consumer_name=%s subject=%s", transferID, consumerName, chunkSubject)
+  log.Printf("TRANSFER_ACTIVE transfer_id=%s total_chunks=%d", transferID, active.totalChunks)
+  log.Printf("TRANSFER_ACCEPTED transfer_id=%s operation_id=%s", transferID, operationID)
+  log.Printf("TRANSFER_ACCEPT_START node_id=%s transfer_id=%s operation_id=%s", r.nodeID, transferID, operationID)
 
-	go func() {
-		ticker := time.NewTicker(2 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-childCtx.Done():
-				return
-			case <-ticker.C:
-				active.mu.Lock()
-				if active.file != nil {
-					_ = active.file.Sync()
-				}
-				active.mu.Unlock()
-			}
-		}
-	}()
-
-	log.Printf("transfer receiver: accepted transfer %s, expecting %d chunks",
-		transferID, active.totalChunks)
+  if active.totalChunks == 0 {
+    log.Printf("TRANSFER_ZERO_CHUNKS transfer_id=%s file_size_bytes=%d file_sha256=%s total_chunks=%d", transferID, int64(fileSize), fileSHA256, int(totalChunks))
+    log.Printf("transfer receiver: transfer %s has no chunks, finalizing immediately", transferID)
+    if err := r.FinalizeTransfer(ctx, active, transferIDStr); err != nil {
+      log.Printf("transfer receiver: finalize failed for empty transfer: %v", err)
+    }
+  }
 
 	return active, nil
 }
@@ -203,50 +200,58 @@ func (r *TransferReceiver) handleChunk(ctx context.Context, active *ActiveTransf
 		return
 	}
 
-	active.mu.Lock()
-	if active.file == nil {
-		active.mu.Unlock()
-		return
-	}
+active.mu.Lock()
+  if active.file == nil {
+    active.mu.Unlock()
+    return
+  }
 
-	if existing, ok := active.received[chunkIndex]; ok {
-		if existing.Checksum == chunkSHA256 {
-			active.mu.Unlock()
-			return
-		}
-		active.mu.Unlock()
-		log.Printf("transfer receiver: chunk %d checksum conflict", chunkIndex)
-		return
-	}
+  if existing, ok := active.received[chunkIndex]; ok {
+    if existing.Checksum == chunkSHA256 {
+      active.mu.Unlock()
+      return
+    }
+    active.mu.Unlock()
+    log.Printf("transfer receiver: chunk %d checksum conflict", chunkIndex)
+    return
+  }
 
-	offset := int64(0)
-	if offsetStr != "" {
-		_, _ = fmt.Sscanf(offsetStr, "%d", &offset)
-	}
+  offset := int64(0)
+  if offsetStr != "" {
+    _, _ = fmt.Sscanf(offsetStr, "%d", &offset)
+  }
 
-	if _, err := active.file.WriteAt(payload, offset); err != nil {
-		active.mu.Unlock()
-		log.Printf("transfer receiver: write chunk %d: %v", chunkIndex, err)
-		return
-	}
+  if _, err := active.file.WriteAt(payload, offset); err != nil {
+    active.mu.Unlock()
+    log.Printf("transfer receiver: write chunk %d: %v", chunkIndex, err)
+    return
+  }
 
-	chunk := &job.FileChunk{
-		ID:           job.ChunkID(fmt.Sprintf("%s:%d", transferIDStr, chunkIndex)),
-		TransferID:   job.TransferID(transferIDStr),
-		ChunkIndex:   chunkIndex,
-		Offset:       offset,
-		ChunkSize:    int64(len(payload)),
-		Checksum:     chunkSHA256,
-		PublishState: "received",
-		AckState:     "acknowledged",
-		Version:      1,
-	}
-	active.received[chunkIndex] = chunk
-	active.receivedSize += int64(len(payload))
+  chunk := &job.FileChunk{
+    ID:           job.ChunkID(fmt.Sprintf("%s:%d", transferIDStr, chunkIndex)),
+    TransferID:   job.TransferID(transferIDStr),
+    ChunkIndex:   chunkIndex,
+    Offset:       offset,
+    ChunkSize:    int64(len(payload)),
+    Checksum:     chunkSHA256,
+    PublishState: "received",
+    AckState:     "acknowledged",
+    Version:      1,
+  }
+  active.received[chunkIndex] = chunk
+  active.receivedSize += int64(len(payload))
 
-	receivedCount := len(active.received)
-	isComplete := receivedCount == active.totalChunks
-	active.mu.Unlock()
+  receivedCount := len(active.received)
+  isComplete := receivedCount == active.totalChunks
+  
+  log.Printf("CHUNK_RECEIVED node_id=%s transfer_id=%s chunk_index=%d chunk_size=%d expected_total_chunks=%d",
+    r.nodeID, transferIDStr, chunkIndex, len(payload), active.totalChunks)
+  log.Printf("CHUNK_STORED transfer_id=%s chunk_index=%d bytes_written=%d",
+    transferIDStr, chunkIndex, len(payload))
+  log.Printf("TRANSFER_PROGRESS transfer_id=%s received_chunks=%d expected_chunks=%d received_bytes=%d expected_bytes=%d",
+    transferIDStr, receivedCount, active.totalChunks, active.receivedSize, active.totalBytes)
+
+  active.mu.Unlock()
 
 	_ = r.chunks.Upsert(ctx, chunk)
 
@@ -270,92 +275,111 @@ func (r *TransferReceiver) handleChunk(ctx context.Context, active *ActiveTransf
 
 	log.Printf("transfer receiver: chunk %d accepted (%d/%d)", chunkIndex, receivedCount, active.totalChunks)
 
-	if isComplete {
-		if err := r.FinalizeTransfer(ctx, active, transferIDStr); err != nil {
-			log.Printf("transfer receiver: finalize failed: %v", err)
-		}
-	}
+if isComplete {
+    log.Printf("TRANSFER_ALL_CHUNKS_RECEIVED transfer_id=%s received_chunks=%d expected_chunks=%d received_bytes=%d",
+      transferIDStr, receivedCount, active.totalChunks, active.receivedSize)
+    if err := r.FinalizeTransfer(ctx, active, transferIDStr); err != nil {
+      log.Printf("transfer receiver: finalize failed: %v", err)
+    }
+  }
 }
 
 func (r *TransferReceiver) FinalizeTransfer(ctx context.Context, active *ActiveTransfer, transferIDStr string) error {
-	active.mu.Lock()
-	defer active.mu.Unlock()
+  active.mu.Lock()
+  defer active.mu.Unlock()
 
-	if err := active.file.Sync(); err != nil {
-		return fmt.Errorf("sync staging file: %w", err)
-	}
+  log.Printf("TRANSFER_FINALIZE_START transfer_id=%s operation_id=%s received_chunks=%d expected_chunks=%d received_bytes=%d expected_bytes=%d expected_checksum=%s",
+    transferIDStr, active.transfer.OperationID, active.totalChunks, active.totalChunks, active.receivedSize, active.totalBytes, active.fileSHA256)
 
-	stat, err := active.file.Stat()
-	if err != nil {
-		return fmt.Errorf("stat staging file: %w", err)
-	}
+  if err := active.file.Sync(); err != nil {
+    log.Printf("TRANSFER_FINALIZE_ERROR transfer_id=%s operation_id=%s error=%v", transferIDStr, active.transfer.OperationID, err)
+    return fmt.Errorf("sync staging file: %w", err)
+  }
 
-	if stat.Size() != active.totalBytes {
-		return fmt.Errorf("final file size mismatch: got %d want %d", stat.Size(), active.totalBytes)
-	}
+  stat, err := active.file.Stat()
+  if err != nil {
+    log.Printf("TRANSFER_FINALIZE_ERROR transfer_id=%s operation_id=%s error=%v", transferIDStr, active.transfer.OperationID, err)
+    return fmt.Errorf("stat staging file: %w", err)
+  }
 
-	if _, err := active.file.Seek(0, io.SeekStart); err != nil {
-		return fmt.Errorf("seek to start: %w", err)
-	}
+  if stat.Size() != active.totalBytes {
+    log.Printf("TRANSFER_FINALIZE_ERROR transfer_id=%s operation_id=%s error=%v", transferIDStr, active.transfer.OperationID, fmt.Errorf("final file size mismatch: got %d want %d", stat.Size(), active.totalBytes))
+    return fmt.Errorf("final file size mismatch: got %d want %d", stat.Size(), active.totalBytes)
+  }
 
-	h := sha256.New()
-	if _, err := io.Copy(h, active.file); err != nil {
-		return fmt.Errorf("compute file checksum: %w", err)
-	}
-	computedChecksum := hex.EncodeToString(h.Sum(nil))
+  if _, err := active.file.Seek(0, io.SeekStart); err != nil {
+    log.Printf("TRANSFER_FINALIZE_ERROR transfer_id=%s operation_id=%s error=%v", transferIDStr, active.transfer.OperationID, err)
+    return fmt.Errorf("seek to start: %w", err)
+  }
 
-	if computedChecksum != active.fileSHA256 {
-		return fmt.Errorf("file checksum mismatch: got %s want %s", computedChecksum, active.fileSHA256)
-	}
+  log.Printf("TRANSFER_CHECKSUM_CALC_START transfer_id=%s staged_file_path=%s", transferIDStr, active.file.Name())
 
-	finalPath := filepath.Join(filepath.Dir(active.file.Name()), "final")
-	_ = finalPath
-	if err := active.file.Close(); err != nil {
-		return fmt.Errorf("close staging file: %w", err)
-	}
-	active.file = nil
-	active.cancel()
+  h := sha256.New()
+  if _, err := io.Copy(h, active.file); err != nil {
+    log.Printf("TRANSFER_FINALIZE_ERROR transfer_id=%s operation_id=%s error=%v", transferIDStr, active.transfer.OperationID, err)
+    return fmt.Errorf("compute file checksum: %w", err)
+  }
+  computedChecksum := hex.EncodeToString(h.Sum(nil))
 
-	now := time.Now().UTC()
-	active.transfer.Status = job.TransferStatusCompleted
-	active.transfer.CompletedAt = &now
-	active.transfer.ReceivedChunks = active.totalChunks
-	if err := r.transfers.Update(ctx, active.transfer); err != nil {
-		return fmt.Errorf("update transfer completed: %w", err)
-	}
+  log.Printf("TRANSFER_CHECKSUM_CALCULATED transfer_id=%s actual_checksum=%s expected_checksum=%s", transferIDStr, computedChecksum, active.fileSHA256)
 
-	manifest := map[string]any{
-		"transfer_id":  active.transfer.ID.String(),
-		"operation_id": active.transfer.OperationID,
-		"file_sha256":  computedChecksum,
-		"total_bytes":  active.totalBytes,
-		"total_chunks": active.totalChunks,
-		"finalized_at": now.Format(time.RFC3339),
-	}
-	manifestBytes, _ := json.Marshal(manifest)
-	if err := os.WriteFile(active.manifestPath, manifestBytes, 0644); err != nil {
-		log.Printf("write manifest: %v", err)
-	}
+  if computedChecksum != active.fileSHA256 {
+    log.Printf("TRANSFER_CHECKSUM_MISMATCH transfer_id=%s actual_checksum=%s expected_checksum=%s", transferIDStr, computedChecksum, active.fileSHA256)
+    return fmt.Errorf("file checksum mismatch: got %s want %s", computedChecksum, active.fileSHA256)
+  }
 
-	evt := &event.OperationEvent{
-		ID:            event.EventID(fmt.Sprintf("evt-%s-%d", active.transfer.ID, time.Now().UnixNano())),
-		OperationID:   active.transfer.OperationID,
-		EventType:     event.EventTypeTransferVerified,
-		Payload:       map[string]any{"transfer_id": transferIDStr, "file_sha256": computedChecksum},
-		CorrelationID: active.transfer.OperationID,
-		IssuedAt:      now,
-		ActorNodeID:   r.nodeID,
-		Version:       1,
-	}
-	if err := r.events.Append(ctx, evt); err != nil {
-		log.Printf("append transfer verified event: %v", err)
-	}
+  log.Printf("TRANSFER_CHECKSUM_OK transfer_id=%s checksum=%s", transferIDStr, computedChecksum)
 
-	eventPayload, _ := json.Marshal(evt)
-	if err := r.nats.PublishEvent(ctx, string(evt.EventType), eventPayload); err != nil {
-		log.Printf("publish transfer verified event: %v", err)
-	}
+  finalPath := filepath.Join(filepath.Dir(active.file.Name()), "final")
+  _ = finalPath
+  if err := active.file.Close(); err != nil {
+    log.Printf("TRANSFER_FINALIZE_ERROR transfer_id=%s operation_id=%s error=%v", transferIDStr, active.transfer.OperationID, err)
+    return fmt.Errorf("close staging file: %w", err)
+  }
+  active.file = nil
+  active.cancel()
 
-	log.Printf("transfer receiver: transfer %s verified and finalized", active.transfer.ID)
-	return nil
+  now := time.Now().UTC()
+  active.transfer.Status = job.TransferStatusCompleted
+  active.transfer.CompletedAt = &now
+  active.transfer.ReceivedChunks = active.totalChunks
+  if err := r.transfers.Update(ctx, active.transfer); err != nil {
+    log.Printf("TRANSFER_FINALIZE_ERROR transfer_id=%s operation_id=%s error=%v", transferIDStr, active.transfer.OperationID, err)
+    return fmt.Errorf("update transfer completed: %w", err)
+  }
+
+  manifest := map[string]any{
+    "transfer_id":  active.transfer.ID.String(),
+    "operation_id": active.transfer.OperationID,
+    "file_sha256":  computedChecksum,
+    "total_bytes":  active.totalBytes,
+    "total_chunks": active.totalChunks,
+    "finalized_at": now.Format(time.RFC3339),
+  }
+  manifestBytes, _ := json.Marshal(manifest)
+  if err := os.WriteFile(active.manifestPath, manifestBytes, 0644); err != nil {
+    log.Printf("write manifest: %v", err)
+  }
+
+  evt := &event.OperationEvent{
+    ID:            event.EventID(fmt.Sprintf("evt-%s-%d", active.transfer.ID, time.Now().UnixNano())),
+    OperationID:   active.transfer.OperationID,
+    EventType:     event.EventTypeTransferVerified,
+    Payload:       map[string]any{"transfer_id": transferIDStr, "file_sha256": computedChecksum},
+    CorrelationID: active.transfer.OperationID,
+    IssuedAt:      now,
+    ActorNodeID:   r.nodeID,
+    Version:       1,
+  }
+  if err := r.events.Append(ctx, evt); err != nil {
+    log.Printf("append transfer verified event: %v", err)
+  }
+
+  eventPayload, _ := json.Marshal(evt)
+  if err := r.nats.PublishEvent(ctx, string(evt.EventType), eventPayload); err != nil {
+    log.Printf("publish transfer verified event: %v", err)
+  }
+
+  log.Printf("TRANSFER_FINALIZE_SUCCESS transfer_id=%s operation_id=%s", transferIDStr, active.transfer.OperationID)
+  return nil
 }
